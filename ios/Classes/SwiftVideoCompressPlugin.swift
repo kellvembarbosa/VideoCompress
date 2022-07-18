@@ -24,12 +24,12 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         case "getByteThumbnail":
             let path = args!["path"] as! String
             let quality = args!["quality"] as! NSNumber
-            let position = args!["position"] as! NSNumber
+            let position = args!["position"] as! Double
             getByteThumbnail(path, quality, position, result)
         case "getFileThumbnail":
             let path = args!["path"] as! String
             let quality = args!["quality"] as! NSNumber
-            let position = args!["position"] as! NSNumber
+            let position = args!["position"] as! Double
             getFileThumbnail(path, quality, position, result)
         case "getMediaInfo":
             let path = args!["path"] as! String
@@ -56,16 +56,22 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         }
     }
     
-    private func getBitMap(_ path: String,_ quality: NSNumber,_ position: NSNumber,_ result: FlutterResult)-> Data?  {
+    private func getBitMap(_ path: String,_ quality: NSNumber,_ position: Double,_ result: FlutterResult)-> Data?  {
         let url = Utility.getPathUrl(path)
         let asset = avController.getVideoAsset(url)
-        guard let track = avController.getTrack(asset) else { return nil }
+        //guard let track = avController.getTrack(asset) else { return nil }
         
         let assetImgGenerate = AVAssetImageGenerator(asset: asset)
         assetImgGenerate.appliesPreferredTrackTransform = true
+        assetImgGenerate.requestedTimeToleranceAfter = CMTime.zero
+        assetImgGenerate.requestedTimeToleranceBefore = CMTime.zero
         
-        let timeScale = CMTimeScale(track.nominalFrameRate)
-        let time = CMTimeMakeWithSeconds(Float64(truncating: position),preferredTimescale: timeScale)
+        //let timeScale = CMTimeScale(track.nominalFrameRate)
+        //let time = CMTimeMakeWithSeconds(position,preferredTimescale: timeScale)
+        
+        let composition = AVVideoComposition(propertiesOf: asset)
+        
+        let time = CMTimeMakeWithSeconds(asset.duration.seconds <= 3.0 ? asset.duration.seconds : 3.0, preferredTimescale: composition.frameDuration.timescale)
         guard let img = try? assetImgGenerate.copyCGImage(at:time, actualTime: nil) else {
             return nil
         }
@@ -74,23 +80,29 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         return thumbnail.jpegData(compressionQuality: compressionQuality)
     }
     
-    private func getByteThumbnail(_ path: String,_ quality: NSNumber,_ position: NSNumber,_ result: FlutterResult) {
+    private func getByteThumbnail(_ path: String,_ quality: NSNumber,_ position: Double,_ result: FlutterResult) {
         if let bitmap = getBitMap(path,quality,position,result) {
             result(bitmap)
         }
     }
     
-    private func getFileThumbnail(_ path: String,_ quality: NSNumber,_ position: NSNumber,_ result: FlutterResult) {
+    private func getFileThumbnail(_ path: String,_ quality: NSNumber,_ position: Double,_ result: FlutterResult) {
         let fileName = Utility.getFileName(path)
         let url = Utility.getPathUrl("\(Utility.basePath())/\(fileName).jpg")
+        
         Utility.deleteFile(path)
+        
+        print("position: \(position)")
+        
         if let bitmap = getBitMap(path,quality,position,result) {
             guard (try? bitmap.write(to: url)) != nil else {
                 return result(FlutterError(code: channelName,message: "getFileThumbnail error",details: "getFileThumbnail error"))
             }
             result(Utility.excludeFileProtocol(url.absoluteString))
         }
+        
     }
+    
     
     public func getMediaInfoJson(_ path: String)->[String : Any?] {
         let url = Utility.getPathUrl(path)
@@ -143,7 +155,7 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
     private func getExportPreset(_ quality: NSNumber)->String {
         switch(quality) {
         case 1:
-            return AVAssetExportPresetLowQuality    
+            return AVAssetExportPresetPassthrough    
         case 2:
             return AVAssetExportPresetMediumQuality
         case 3:
@@ -178,7 +190,7 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
                                _ duration: Double?,_ includeAudio: Bool?,_ frameRate: Int?,
                                _ result: @escaping FlutterResult) {
         let sourceVideoUrl = Utility.getPathUrl(path)
-        let sourceVideoType = "mp4"
+        let sourceVideoType = "mov"
         
         let sourceVideoAsset = avController.getVideoAsset(sourceVideoUrl)
         let sourceVideoTrack = avController.getTrack(sourceVideoAsset)
@@ -189,14 +201,21 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
 
         let timescale = sourceVideoAsset.duration.timescale
         let minStartTime = Double(startTime ?? 0)
+        //let maxDuration = Double(duration ?? sourceVideoAsset.duration.seconds)
         
         let videoDuration = sourceVideoAsset.duration.seconds
         let minDuration = Double(duration ?? videoDuration)
         let maxDurationTime = minStartTime + minDuration < videoDuration ? minDuration : videoDuration
         
-        let cmStartTime = CMTimeMakeWithSeconds(minStartTime, preferredTimescale: timescale)
-        let cmDurationTime = CMTimeMakeWithSeconds(maxDurationTime, preferredTimescale: timescale)
-        let timeRange: CMTimeRange = CMTimeRangeMake(start: cmStartTime, duration: cmDurationTime)
+        let cmNStartTime = startTime ?? 0.0;
+        //let endTime = cmNStartTime > 0.0 ? CMTime(seconds: Double(cmNStartTime + 3.0), preferredTimescale: sourceVideoAsset.duration.timescale) : CMTime(seconds: videoDuration > 3.0 ? 3.0 : videoDuration, preferredTimescale: sourceVideoAsset.duration.timescale);
+       
+        let endTimeWithDuration = CMTime(seconds: maxDurationTime, preferredTimescale: sourceVideoAsset.duration.timescale);
+        let cmStartTime = CMTime(seconds: minStartTime, preferredTimescale: timescale)
+        
+        print("onPlatform: cmNStartTime: \(cmNStartTime)  videoDuration: \(videoDuration) minStartTime \(minStartTime) duration: \(duration)");
+        //let cmDurationTime = CMTime(seconds: maxDurationTime, preferredTimescale: timescale)
+        let timeRange: CMTimeRange = CMTimeRange(start: cmStartTime, duration: endTimeWithDuration)
         
         let isIncludeAudio = includeAudio != nil ? includeAudio! : true
         
@@ -205,7 +224,7 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         let exporter = AVAssetExportSession(asset: session, presetName: getExportPreset(quality))!
         
         exporter.outputURL = compressionUrl
-        exporter.outputFileType = AVFileType.mp4
+        exporter.outputFileType = AVFileType.mov
         exporter.shouldOptimizeForNetworkUse = true
         
         if frameRate != nil {

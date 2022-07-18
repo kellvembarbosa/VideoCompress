@@ -36,9 +36,7 @@ extension Compress on IVideoCompress {
   Future<T?> _invoke<T>(String name, [Map<String, dynamic>? params]) async {
     T? result;
     try {
-      result = params != null
-          ? await channel.invokeMethod(name, params)
-          : await channel.invokeMethod(name);
+      result = params != null ? await channel.invokeMethod(name, params) : await channel.invokeMethod(name);
     } on PlatformException catch (e) {
       debugPrint('''Error from VideoCompress: 
       Method: $name
@@ -70,7 +68,7 @@ extension Compress on IVideoCompress {
   Future<File> getFileThumbnail(
     String path, {
     int quality = 100,
-    int position = -1,
+    double position = -1,
   }) async {
     assert(quality > 1 || quality < 100);
 
@@ -123,8 +121,8 @@ extension Compress on IVideoCompress {
     String path, {
     VideoQuality quality = VideoQuality.DefaultQuality,
     bool deleteOrigin = false,
-    int? startTime,
-    int? duration,
+    double? startTime,
+    double? duration,
     bool? includeAudio,
     int frameRate = 30,
   }) async {
